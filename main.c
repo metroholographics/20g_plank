@@ -33,6 +33,12 @@ typedef enum {
     FIRING
 } BulletState;
 
+typedef enum {
+    STATIONARY,
+    HORIZONTAL,
+    VERTICAL
+} MovementState;
+
 typedef struct Player {
     Vector2 position;
 } Player;
@@ -44,9 +50,17 @@ typedef struct bullet_handler {
     BulletState state;    
 } BulletHandler;
 
+typedef struct movement_handler {
+    Vector2 centre_pos;
+    Vector2 target_pos;
+    float timer;
+    MovementState state;
+} MovementHandler;
+
 typedef struct Cannons {
     Vector2 positions[MAX_CANNONS];
     BulletHandler bullet[MAX_CANNONS];
+    MovementHandler movement[MAX_CANNONS];
 } Cannons;
 
 Rectangle plank_rect = {
@@ -98,6 +112,12 @@ int main(int argc, char* argv[])
             .lock_on = {0,0},
             .timer = 0.0f,
             .state = IDLE
+        };
+        cannons.movement[i] = (MovementHandler) {
+            .centre_pos = (Vector2) {x, y},
+            .target_pos = (Vector2) {x, y},
+            .timer = 0.0f,
+            .state = STATIONARY
         };
     }
 
@@ -157,9 +177,50 @@ void update_player(void)
 
 void update_cannons(void)
 {
+    float dt = GetFrameTime();
+    //::update_movement
+    for (int i = 0; i < MAX_CANNONS; i++) {
+        bool left_cannon = (i < RIGHT_TOP) ? true: false;
+        MovementHandler* m = &cannons.movement[i];
+        m->timer += dt;
+        if (m->timer >= 3.0f && m->state == STATIONARY) {
+            m->state = GetRandomValue(0,2);
+            m->timer = 0.0f;
+        }
+        switch (m->state) {
+            case STATIONARY:
+                m->target_pos = (Vector2) {0,0};
+                break;
+            case HORIZONTAL:
+            case VERTICAL:
+                if (Vector2Equals(m->target_pos, (Vector2) {0,0})) {
+                    Vector2 t = (left_cannon) ? (Vector2) {100,0} : (Vector2) {-100, 0};
+                    t = (m->state == HORIZONTAL) ? t : (Vector2) {0, 100};
+                    m->target_pos = Vector2Add(m->centre_pos, t);
+                } else if (Vector2Equals(cannons.positions[i], m->target_pos) && !Vector2Equals(m->target_pos, m->centre_pos)) {
+                    m->target_pos = m->centre_pos;
+                } else if (Vector2Equals(cannons.positions[i], m->centre_pos)) {
+                    printf("stopping\n");
+                    m->target_pos = (Vector2) {0,0};
+                    m->state = STATIONARY;
+                    m->timer = 0.0f;
+                }
+                break;
+            default:
+                break;
+        }
+        if (i == 0) {
+            printf("%f\n", m->timer);
+        }
+        if (m->state != STATIONARY) {
+            cannons.positions[i] = Vector2MoveTowards(cannons.positions[i], m->target_pos, 50 * dt);
+        }
+    }
+
+    //::update_bullets
     for (int i = 0; i < MAX_CANNONS; i++) {
         BulletHandler* b = &cannons.bullet[i];
-        b->timer += GetFrameTime();
+        b->timer += dt;
         if (b->timer >= 1.25 && b->state == IDLE) {
             int chance = GetRandomValue(1, 10);
             if (chance <= 1) {
@@ -177,7 +238,7 @@ void update_cannons(void)
             }
         }
         if (b->state == FIRING) {
-            b->bullet_position = Vector2MoveTowards(b->bullet_position, b->lock_on, 200 * GetFrameTime());
+            b->bullet_position = Vector2MoveTowards(b->bullet_position, b->lock_on, 200 * dt);
             if (Vector2Equals(b->bullet_position, b->lock_on) || CheckCollisionCircleRec(b->bullet_position, BULLET_RADIUS, player_rect)) {
                 b->state = IDLE;
                 b->timer = 0.0f;
