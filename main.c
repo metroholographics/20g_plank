@@ -39,8 +39,16 @@ typedef enum {
     VERTICAL
 } MovementState;
 
+typedef enum {
+    MAIN_MENU,
+    RESET_STATE,
+    IN_GAME
+} GameState;
+
 typedef struct Player {
     Vector2 position;
+    Color color;
+    bool alive;
 } Player;
 
 typedef struct bullet_handler {
@@ -77,11 +85,13 @@ Rectangle player_rect = {
     PLAYER_SIZE
 };
 
+GameState game_state;
 Player player;
 Cannons cannons;
 
 void update_player(void);
 void update_cannons(void);
+void reset_game(void);
 
 int main(int argc, char* argv[])
 {   
@@ -95,8 +105,12 @@ int main(int argc, char* argv[])
 
     SetTargetFPS(120);
 
+    game_state = IN_GAME;
+
     player.position.x = player_rect.x;
     player.position.y = player_rect.y;
+    player.color = (Color) {255, 255, 255, 255};
+    player.alive = true;
 
     for (int i = 0; i < MAX_CANNONS; i++) {
         float x, y;
@@ -123,9 +137,29 @@ int main(int argc, char* argv[])
 
     while (!WindowShouldClose()) 
     {
-        update_player();
-        update_cannons();
-        
+
+        {
+            if (!player.alive) game_state = RESET_STATE;
+             
+            if (game_state != MAIN_MENU) {
+                update_player();
+                update_cannons();
+            }
+
+            if (game_state == RESET_STATE) {
+                reset_game();
+                game_state = MAIN_MENU;
+            }
+
+            if (game_state == MAIN_MENU) {
+                
+                
+                if (IsKeyPressed(KEY_SPACE)) {
+                    game_state = IN_GAME;
+                }
+            }
+        }
+                    
         BeginDrawing();
             ClearBackground(C_BLUE);
             DrawRectangleRec(plank_rect, C_BROWN);
@@ -141,10 +175,12 @@ int main(int argc, char* argv[])
                 if (b.state == FIRING) {
                     DrawLineEx(b.bullet_position, b.lock_on, 1.5f, C_RED);
                     DrawCircleV(b.bullet_position, BULLET_RADIUS, C_BLACK);
-                    
                 }
             }
-            DrawRectangleRec(player_rect, WHITE);
+            DrawRectangleRec(player_rect, player.color);
+            if (game_state == MAIN_MENU) {
+                DrawText("Press Space to play", GAME_WIDTH*0.5f, GAME_HEIGHT*0.5f, 22, C_BLACK);
+            }
         EndDrawing();
     }
     
@@ -154,22 +190,72 @@ int main(int argc, char* argv[])
     return 0;
 }
 
+void reset_game(void) {
+    
+    player_rect = (Rectangle) {
+        GAME_WIDTH * 0.5f - (PLAYER_SIZE * 0.5f),
+        GAME_HEIGHT - PLAYER_SIZE,
+        PLAYER_SIZE,
+        PLAYER_SIZE
+    };
+    
+    player.position.x = player_rect.x;
+    player.position.y = player_rect.y;
+    player.color = (Color) {255, 255, 255, 255};
+    player.alive = true;
+
+    for (int i = 0; i < MAX_CANNONS; i++) {
+        float x, y;
+        x = 100;
+        y = 100 + (250 * i); 
+        if (i >= RIGHT_TOP) {
+            x = 1100;
+            y = 100 + (250 * (i % 3));
+        }
+        cannons.positions[i] = (Vector2) {x,y};
+        cannons.bullet[i] = (BulletHandler) {
+            .bullet_position = {0,0},
+            .lock_on = {0,0},
+            .timer = 0.0f,
+            .state = IDLE
+        };
+        cannons.movement[i] = (MovementHandler) {
+            .centre_pos = (Vector2) {x, y},
+            .target_pos = (Vector2) {x, y},
+            .timer = 0.0f,
+            .state = STATIONARY
+        };
+    }
+    
+    return;
+}
+
 void update_player(void)
 {
+    float dt = GetFrameTime();
     if (IsKeyDown(KEY_UP)) {
-        player.position.y -= 100 * GetFrameTime();     
+        player.position.y -= 100 * dt;     
     }
     if (IsKeyDown(KEY_DOWN)) {
-        player.position.y += 100 * GetFrameTime();
+        player.position.y += 100 * dt;
     }
     if (IsKeyDown(KEY_LEFT)) {
-        player.position.x -= 100 * GetFrameTime();
+        player.position.x -= 100 * dt;
     }
     if (IsKeyDown(KEY_RIGHT)) {
-        player.position.x += 100 * GetFrameTime();
+        player.position.x += 100 * dt;
     }
 
     if (player.position.y + PLAYER_SIZE > GAME_HEIGHT) player.position.y = GAME_HEIGHT - PLAYER_SIZE;
+    
+    if (player.position.x + (0.5f * PLAYER_SIZE) < plank_rect.x || player.position.x + 0.5f * PLAYER_SIZE > plank_rect.x + PLANK_W) {
+        player.alive = false;
+        player.color = (Color) {220, 100, 100 , 255};
+    } else {
+        player.alive = true;
+    }
+
+    player.color = (player.alive) ? (Color) {255, 255, 255, 255} : (Color) {220, 100, 100, 255};
 
     player_rect.x = player.position.x;
     player_rect.y = player.position.y;
@@ -209,9 +295,7 @@ void update_cannons(void)
             default:
                 break;
         }
-        if (i == 0) {
-            printf("%f\n", m->timer);
-        }
+        
         if (m->state != STATIONARY) {
             cannons.positions[i] = Vector2MoveTowards(cannons.positions[i], m->target_pos, 50 * dt);
         }
@@ -221,6 +305,7 @@ void update_cannons(void)
     for (int i = 0; i < MAX_CANNONS; i++) {
         BulletHandler* b = &cannons.bullet[i];
         b->timer += dt;
+        
         if (b->timer >= 1.25 && b->state == IDLE) {
             int chance = GetRandomValue(1, 10);
             if (chance <= 1) {
@@ -239,10 +324,12 @@ void update_cannons(void)
         }
         if (b->state == FIRING) {
             b->bullet_position = Vector2MoveTowards(b->bullet_position, b->lock_on, 200 * dt);
-            if (Vector2Equals(b->bullet_position, b->lock_on) || CheckCollisionCircleRec(b->bullet_position, BULLET_RADIUS, player_rect)) {
+            bool hit_player = CheckCollisionCircleRec(b->bullet_position, BULLET_RADIUS, player_rect);
+            if (Vector2Equals(b->bullet_position, b->lock_on) || hit_player) {
                 b->state = IDLE;
                 b->timer = 0.0f;
             }
+            if (hit_player) player.alive = false;
         }  
     }
 }
