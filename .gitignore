@@ -2,3 +2,4 @@
 compile_commands.json
 *.exe
 *.concepts
+assets/*.pxc
