@@ -13,12 +13,15 @@
 #define C_GREY  (Color) {147, 163, 153, 255}
 
 #define PLANK_W GAME_WIDTH * 0.2f
+#define PLANK_MOVE_RATE 12
 #define PLAYER_SIZE 64
 #define PLAYER_SPRITE_SIZE 32
 #define WATER_SPRITE_SIZE 32
 #define WATER_TILE_SIZE 128
 #define CANNON_RADIUS 35
 #define BULLET_RADIUS 5
+#define MAX_CRATES 5
+#define CRATE_SIZE 64
 
 typedef enum {
     LEFT_TOP = 0,
@@ -84,6 +87,12 @@ typedef struct Cannons {
     MovementHandler movement[MAX_CANNONS];
 } Cannons;
 
+typedef struct crates {
+    int count;
+    Vector2 position[MAX_CRATES];
+    bool is_active[MAX_CRATES];
+} Crates;
+
 Rectangle plank_rect = {
     GAME_WIDTH * 0.5f - (PLANK_W * 0.5f),
     0,
@@ -94,10 +103,12 @@ Rectangle plank_rect = {
 GameState game_state;
 Player player;
 Cannons cannons;
+Crates crates;
 Texture2D spritesheet;
 
 void update_player(void);
 void update_cannons(void);
+void update_crates(void);
 void reset_game(void);
 
 int main(int argc, char* argv[])
@@ -131,25 +142,35 @@ int main(int argc, char* argv[])
             if (game_state != MAIN_MENU) {
                 update_player();
                 update_cannons();
+                update_crates();
             }
-
             if (game_state == RESET_STATE) {
                 reset_game();
                 game_state = MAIN_MENU;
             }
-
             if (game_state == MAIN_MENU) {
                 if (IsKeyPressed(KEY_SPACE)) {
                     game_state = IN_GAME;
                 }
             }
         }
+        
+        
+        for (int i = 0; i < MAX_CRATES; i++) {
+            if (crates.is_active[i]) {
+                crates.position[i].y += ((float) GAME_HEIGHT / PLANK_MOVE_RATE) * GetFrameTime();
+                if (crates.position[i].y > GAME_HEIGHT) {
+                    crates.is_active[i] = false;
+                    crates.count--;
+                }
+            }
+        }
                     
         BeginDrawing();
             ClearBackground(C_BLUE);
-
-            //::draw water tiles
+            //::draw_watertiles::
             {
+                //::todo:: move update logic to an update function
                 static float tile_timer = 0.0f;
                 static int index = 0;
                 tile_timer += GetFrameTime();
@@ -168,20 +189,19 @@ int main(int argc, char* argv[])
                     }
                 }    
             }
-
-            //::draw scrolling plank
+            //::draw_scrolling_plank::
             {
                 static float plank_timer = 0.0f;
                 static float moved_amount = 0;
                 plank_timer += GetFrameTime();
                 if (plank_timer > 0.0f) {
-                    moved_amount += 12 * GetFrameTime();
+                    moved_amount += PLANK_MOVE_RATE * GetFrameTime();
                     plank_timer = 0.0f;
                     if (moved_amount >= 136) {
                         moved_amount = 0;
                     }
                 }
-                
+                //::todo:: move update logic to an update function
                 Rectangle plank1_dest = plank_rect;
                 plank1_dest.y = plank_rect.y +  (GAME_HEIGHT / 136.0f) * moved_amount;
                 Rectangle plank1_source = (Rectangle) {0, 64, 48, 136};
@@ -197,15 +217,14 @@ int main(int argc, char* argv[])
                     plank1_dest,
                     (Vector2){0,0}, 0.0f, WHITE
                 );
-
-                 DrawTexturePro(
+                DrawTexturePro(
                     spritesheet,
                     plank2_source,
                     plank2_dest,
                     (Vector2){0,0}, 0.0f, WHITE
                 );    
             }
-            
+            //::draw_cannons::
             for (int i = 0; i < MAX_CANNONS; i++) {
                 Vector2 can_pos = cannons.positions[i];
                 int flip = (i < RIGHT_TOP) ? 1 : -1;
@@ -215,6 +234,7 @@ int main(int argc, char* argv[])
                     (Vector2) {16,16}, 0.0f, WHITE
                  );
             }
+            //::draw_bullets::
             for (int i = 0; i < MAX_CANNONS; i++) {
                 BulletHandler b = cannons.bullet[i];
                 if (b.state == LOCKING_ON) {
@@ -228,7 +248,16 @@ int main(int argc, char* argv[])
                      );
                 }
             }
+            //::draw_crates::
+            for (int i = 0; i < MAX_CRATES; i++) {
+                if (crates.is_active[i]) {
+                    Vector2 pos = crates.position[i];
+                    DrawRectangle(pos.x, pos.y, CRATE_SIZE, CRATE_SIZE, C_BROWN);
+                }
+            }
+
             
+            //::draw_player::
             DrawTexturePro(spritesheet, player.source_rect, player.dest_rect, (Vector2) {0,0}, 0, WHITE);
             
             if (game_state == MAIN_MENU) {
@@ -251,6 +280,7 @@ void reset_game(void) {
         PLAYER_SIZE,
         PLAYER_SIZE
     };
+    
     player.source_rect.width = player.source_rect.height = PLAYER_SPRITE_SIZE;
     player.source_rect.y = 32; 
     player.position.x = 0;
@@ -286,6 +316,12 @@ void reset_game(void) {
             .state = STATIONARY
         };
     }
+
+    crates.count = 0;
+    for (int i = 0; i < MAX_CRATES; i++) {
+        crates.is_active[i] = 0;
+        crates.position[i] = (Vector2) {0,0};
+    }
     
     return;
 }
@@ -301,7 +337,7 @@ void update_player(void)
         player.position.y = -100 * dt;     
     }
     if (IsKeyDown(KEY_DOWN)) {
-        player.position.y = 200 * dt;
+        player.position.y = 150 * dt;
     }
     if (IsKeyDown(KEY_LEFT)) {
         player.position.x = -100 * dt;
@@ -343,7 +379,7 @@ void update_player(void)
 void update_cannons(void)
 {
     float dt = GetFrameTime();
-    //::update_movement
+    //::update_movement::
     for (int i = 0; i < MAX_CANNONS; i++) {
         bool left_cannon = (i < RIGHT_TOP) ? true: false;
         MovementHandler* m = &cannons.movement[i];
@@ -379,7 +415,7 @@ void update_cannons(void)
         }
     }
 
-    //::update_bullets
+    //::update_bullets::
     for (int i = 0; i < MAX_CANNONS; i++) {
         BulletHandler* b = &cannons.bullet[i];
         b->timer += dt;
@@ -402,7 +438,7 @@ void update_cannons(void)
         }
         if (b->state == FIRING) {
             b->bullet_position = Vector2MoveTowards(b->bullet_position, b->lock_on, 200 * dt);
-            //::todo: learn how to do circle->rect collision myself
+            //::todo:: learn how to do circle->rect collision myself
             bool hit_player = CheckCollisionCircleRec(b->bullet_position, BULLET_RADIUS, player.dest_rect);
             if (Vector2Equals(b->bullet_position, b->lock_on) || hit_player) {
                 b->state = IDLE;
@@ -410,5 +446,29 @@ void update_cannons(void)
             }
             if (hit_player) player.alive = false;
         }  
+    }
+}
+
+void update_crates(void) {
+    static float crate_timer = 0.0f;
+    if (crates.count < MAX_CRATES) {
+        crate_timer += GetFrameTime();
+        if (crate_timer > 0.3f) {
+            crate_timer = 0.0f;
+            int chance = GetRandomValue(1, 100);
+            if (chance <= 15) {
+                int index = 0;
+                for (;;) {
+                    if (!crates.is_active[index]) {
+                        crates.is_active[index] = true;
+                        break;
+                    }
+                    index++;
+                }
+                crates.count++;
+                int x = plank_rect.x;
+                crates.position[index] = (Vector2) {(float) GetRandomValue(x, x + PLANK_W - CRATE_SIZE), -CRATE_SIZE};
+            }
+        }    
     }
 }
