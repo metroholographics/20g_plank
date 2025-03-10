@@ -117,7 +117,7 @@ int main(int argc, char* argv[])
 
     SetRandomSeed((unsigned int) time(NULL));
 
-    SetTargetFPS(120);
+    SetTargetFPS(60);
 
     game_state = IN_GAME;
 
@@ -147,7 +147,8 @@ int main(int argc, char* argv[])
                     
         BeginDrawing();
             ClearBackground(C_BLUE);
-            // DrawRectangleRec(plank_rect, C_BROWN);
+
+            //::draw water tiles
             {
                 static float tile_timer = 0.0f;
                 static int index = 0;
@@ -167,17 +168,46 @@ int main(int argc, char* argv[])
                     }
                 }    
             }
-            
-            DrawTexturePro(
-                spritesheet,
-                (Rectangle){0, 64,48, 136},
-                plank_rect,
-                (Vector2){0,0}, 0.0f, WHITE
-            );
 
+            //::draw scrolling plank
+            {
+                static float plank_timer = 0.0f;
+                static float moved_amount = 0;
+                plank_timer += GetFrameTime();
+                if (plank_timer > 0.0f) {
+                    moved_amount += 12 * GetFrameTime();
+                    plank_timer = 0.0f;
+                    if (moved_amount >= 136) {
+                        moved_amount = 0;
+                    }
+                }
+                
+                Rectangle plank1_dest = plank_rect;
+                plank1_dest.y = plank_rect.y +  (GAME_HEIGHT / 136.0f) * moved_amount;
+                Rectangle plank1_source = (Rectangle) {0, 64, 48, 136};
+                
+                Rectangle plank2_source = (Rectangle) {0, 200 - moved_amount, 48, moved_amount};
+                
+                Rectangle plank2_dest = plank_rect;
+                plank2_dest.height = (GAME_HEIGHT / 136.0f) * moved_amount;
+                
+                DrawTexturePro(
+                    spritesheet,
+                    plank1_source,
+                    plank1_dest,
+                    (Vector2){0,0}, 0.0f, WHITE
+                );
+
+                 DrawTexturePro(
+                    spritesheet,
+                    plank2_source,
+                    plank2_dest,
+                    (Vector2){0,0}, 0.0f, WHITE
+                );    
+            }
+            
             for (int i = 0; i < MAX_CANNONS; i++) {
                 Vector2 can_pos = cannons.positions[i];
-                // DrawCircleV(can_pos, CANNON_RADIUS, C_BLACK);
                 int flip = (i < RIGHT_TOP) ? 1 : -1;
                 DrawTexturePro(spritesheet,
                     (Rectangle) {0,232,flip*32,32},
@@ -191,23 +221,23 @@ int main(int argc, char* argv[])
                     DrawLineEx(cannons.positions[i], b.lock_on, 2.0f, C_GREY); 
                 }
                 if (b.state == FIRING) {
-                    // DrawLineEx(b.bullet_position, b.lock_on, 1.5f, C_RED);
-                    // DrawCircleV(b.bullet_position, BULLET_RADIUS, C_BLACK);
-                    DrawTexturePro(spritesheet, (Rectangle){48,64,32,32},
-                                   (Rectangle){b.bullet_position.x,b.bullet_position.y,32,32},
-                               (Vector2){4,4}, 0, WHITE);
+                    DrawTexturePro(spritesheet,
+                        (Rectangle){48,64,32,32},
+                        (Rectangle){b.bullet_position.x,b.bullet_position.y,32,32},
+                         (Vector2){4,4}, 0, WHITE
+                     );
                 }
             }
+            
             DrawTexturePro(spritesheet, player.source_rect, player.dest_rect, (Vector2) {0,0}, 0, WHITE);
+            
             if (game_state == MAIN_MENU) {
                 DrawText("Press Space to play", GAME_WIDTH*0.5f, GAME_HEIGHT*0.5f, 22, C_BLACK);
             }
+            
             DrawFPS(20,20);
         EndDrawing();
     }
-    
-     
-
     
     CloseWindow();
     return 0;
@@ -271,7 +301,7 @@ void update_player(void)
         player.position.y = -100 * dt;     
     }
     if (IsKeyDown(KEY_DOWN)) {
-        player.position.y = 100 * dt;
+        player.position.y = 200 * dt;
     }
     if (IsKeyDown(KEY_LEFT)) {
         player.position.x = -100 * dt;
