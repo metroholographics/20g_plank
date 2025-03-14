@@ -70,7 +70,7 @@ typedef struct anim_handler {
 } AnimationHandler;
 
 typedef struct Player {
-    Rectangle colliders[MAX_DIRECTIONS];
+    Rectangle colliders[MAX_DIRECTIONS]; //::todo:: fix way we store colliders, only need 1
     Rectangle source_rect;
     Rectangle dest_rect;
     AnimationHandler animation;
@@ -102,8 +102,10 @@ typedef struct Cannons {
 
 typedef struct crates {
     int count;
+    bool selected;
     Vector2 position[MAX_CRATES];
     bool is_active[MAX_CRATES];
+    bool selection[MAX_CRATES];
 } Crates;
 
 Rectangle plank_rect = {
@@ -146,7 +148,7 @@ int main(int argc, char* argv[])
     
     while (!WindowShouldClose()) 
     {
-        BeginDrawing();
+
         {
             if (!player.alive) game_state = RESET_STATE;
              
@@ -165,7 +167,7 @@ int main(int argc, char* argv[])
                 }
             }
         }
-        
+        BeginDrawing();
             ClearBackground(C_BLUE);
             //::draw_watertiles::
             {
@@ -251,7 +253,13 @@ int main(int argc, char* argv[])
             for (int i = 0; i < MAX_CRATES; i++) {
                 if (crates.is_active[i]) {
                     Vector2 pos = crates.position[i];
-                    DrawRectangle(pos.x, pos.y, CRATE_SIZE, CRATE_SIZE, C_BROWN);
+                    Rectangle crate_rec = (Rectangle) {pos.x, pos.y, CRATE_SIZE, CRATE_SIZE};    
+                    DrawRectangleRec(crate_rec, C_BROWN);
+                    if (crates.selection[i]) {
+                        DrawRectangleLinesEx(crate_rec, 2, YELLOW);
+                    }    
+                
+                    
                 }
             }
             //::draw_player::
@@ -292,8 +300,7 @@ void reset_game(void) {
         .anim_speed = 0.15f,
     };
     player.direction = TOP;
-    player.colliders[TOP] = player.colliders[BOTTOM] =  (Rectangle) {0, 0, 0.5 *  PLAYER_SIZE, 0.5 *  PLAYER_SIZE};
-    player.colliders[LEFT] = player.colliders[RIGHT] = (Rectangle) {0, 0, 0.9f* PLAYER_SIZE, 0.25f * PLAYER_SIZE};
+    player.colliders[TOP] = (Rectangle) {0, 0, 0.5 *  PLAYER_SIZE, 0.5 *  PLAYER_SIZE};
 
     for (int i = 0; i < MAX_CANNONS; i++) {
         float x, y;
@@ -319,9 +326,11 @@ void reset_game(void) {
     }
 
     crates.count = 0;
+    crates.selected = false;;
     for (int i = 0; i < MAX_CRATES; i++) {
-        crates.is_active[i] = 0;
+        crates.is_active[i] = false;
         crates.position[i] = (Vector2) {0,0};
+        crates.selection[i] = false;
     }
     
     return;
@@ -350,14 +359,10 @@ void update_player(void)
         player.direction = RIGHT;
         player.position.x = 100 * dt;
     }
-    
-    player.color = (player.alive) ? (Color) {255, 255, 255, 255} : (Color) {220, 100, 100, 255};
 
     Rectangle next_position = player.dest_rect;
     next_position.x += player.position.x;
     next_position.y += player.position.y;
-
-    player.colliders[TOP]  = (Rectangle) {0, 0, 0.5 *  PLAYER_SIZE, 0.5 *  PLAYER_SIZE};
      
     player.colliders[TOP].y = next_position.y + 0.5f * PLAYER_SIZE - 0.6f * player.colliders[TOP].height;
     player.colliders[TOP].x = next_position.x + 0.5f * PLAYER_SIZE - 0.5f * player.colliders[TOP].width;    
@@ -376,6 +381,13 @@ void update_player(void)
             if (!crates.is_active[i]) continue;
             Rectangle crate_collider = (Rectangle) {crates.position[i].x, crates.position[i].y, CRATE_SIZE, CRATE_SIZE};
             if (CheckCollisionRecs(player.colliders[TOP], crate_collider)) {
+                if (!crates.selected) {
+                    crates.selection[i] = true;
+                    crates.selected = true;
+                } else {
+                    crates.selection[i] = false;
+                    crates.selected = false;
+                } 
                 Rectangle p_col = player.colliders[TOP];
                 int overlap_x = 0, overlap_y = 0;
                 int x_sign = 1, y_sign = 1;
@@ -399,27 +411,33 @@ void update_player(void)
                 } else {
                     player.dest_rect.y += y_sign * overlap_y;
                 }
-            }
+            } else {
+                crates.selected = false;
+                crates.selection[i] = false;
+            } 
         }
     }
 
-    bool moving = (player.position.x != 0.0f || player.position.y != 0.0f);
+    //::player_animation::
+    {
+        bool moving = (player.position.x != 0.0f || player.position.y != 0.0f);
     
-    if (moving) {
-        player.animation.timer += dt;
-        if (player.animation.timer > player.animation.anim_speed) {
-            player.animation.current_frame += 1;
-            player.animation.timer = 0.0f;
-            if (player.animation.current_frame == player.animation.num_frames) {
-                player.animation.current_frame = 0;
-            }
-        }     
-    } else {
-        player.animation.current_frame = 0;
+        if (moving) {
+            player.animation.timer += dt;
+            if (player.animation.timer > player.animation.anim_speed) {
+                player.animation.current_frame += 1;
+                player.animation.timer = 0.0f;
+                if (player.animation.current_frame == player.animation.num_frames) {
+                    player.animation.current_frame = 0;
+                }
+            }     
+        } else {
+            player.animation.current_frame = 0;
+        }
+        player.source_rect.x = player.animation.current_frame * PLAYER_SPRITE_SIZE;
+        if (player.position.y < 0) player.source_rect.y = 1 * PLAYER_SPRITE_SIZE;
+        else if (player.position.y > 0) player.source_rect.y = 0 * PLAYER_SPRITE_SIZE;
     }
-    player.source_rect.x = player.animation.current_frame * PLAYER_SPRITE_SIZE;
-    if (player.position.y < 0) player.source_rect.y = 1 * PLAYER_SPRITE_SIZE;
-    else if (player.position.y > 0) player.source_rect.y = 0 * PLAYER_SPRITE_SIZE;
 }
 
 void update_cannons(void)
@@ -524,6 +542,10 @@ void update_crates(void) {
             if (crates.position[i].y > GAME_HEIGHT) {
                 crates.is_active[i] = false;
                 crates.count--;
+                if (crates.selection[i]) {
+                    crates.selected = false;
+                    crates.selection[i] = false;
+                }
             }
         }
     }
