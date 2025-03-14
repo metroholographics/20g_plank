@@ -1,7 +1,10 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include "raylib.h"
 #include "raymath.h"
+
+#define GLOBAL_BULLET_IMMUNITY true;
 
 #define GAME_WIDTH 1280
 #define GAME_HEIGHT 720
@@ -34,6 +37,14 @@ typedef enum {
 } CannonIDs;
 
 typedef enum {
+    TOP = 0,
+    RIGHT,
+    BOTTOM,
+    LEFT,
+    MAX_DIRECTIONS
+} PlayerDirection;
+
+typedef enum {
     IDLE = 0,
     LOCKING_ON,
     FIRING
@@ -59,11 +70,13 @@ typedef struct anim_handler {
 } AnimationHandler;
 
 typedef struct Player {
+    Rectangle colliders[MAX_DIRECTIONS];
     Rectangle source_rect;
     Rectangle dest_rect;
     AnimationHandler animation;
     Vector2 position;
     Color color;
+    PlayerDirection direction;
     bool alive;
 } Player;
 
@@ -127,15 +140,13 @@ int main(int argc, char* argv[])
     }
 
     SetRandomSeed((unsigned int) time(NULL));
-
     SetTargetFPS(60);
-
     game_state = IN_GAME;
-
     reset_game();
     
     while (!WindowShouldClose()) 
     {
+        BeginDrawing();
         {
             if (!player.alive) game_state = RESET_STATE;
              
@@ -155,18 +166,6 @@ int main(int argc, char* argv[])
             }
         }
         
-        
-        for (int i = 0; i < MAX_CRATES; i++) {
-            if (crates.is_active[i]) {
-                crates.position[i].y += ((float) GAME_HEIGHT / PLANK_MOVE_RATE) * GetFrameTime();
-                if (crates.position[i].y > GAME_HEIGHT) {
-                    crates.is_active[i] = false;
-                    crates.count--;
-                }
-            }
-        }
-                    
-        BeginDrawing();
             ClearBackground(C_BLUE);
             //::draw_watertiles::
             {
@@ -255,11 +254,10 @@ int main(int argc, char* argv[])
                     DrawRectangle(pos.x, pos.y, CRATE_SIZE, CRATE_SIZE, C_BROWN);
                 }
             }
-
-            
             //::draw_player::
             DrawTexturePro(spritesheet, player.source_rect, player.dest_rect, (Vector2) {0,0}, 0, WHITE);
-            
+            // DrawRectangleRec(player.colliders[TOP], (Color) {255,0,0,100});
+            //::draw_main_menu::
             if (game_state == MAIN_MENU) {
                 DrawText("Press Space to play", GAME_WIDTH*0.5f, GAME_HEIGHT*0.5f, 22, C_BLACK);
             }
@@ -293,6 +291,9 @@ void reset_game(void) {
         .current_frame = 0,
         .anim_speed = 0.15f,
     };
+    player.direction = TOP;
+    player.colliders[TOP] = player.colliders[BOTTOM] =  (Rectangle) {0, 0, 0.5 *  PLAYER_SIZE, 0.5 *  PLAYER_SIZE};
+    player.colliders[LEFT] = player.colliders[RIGHT] = (Rectangle) {0, 0, 0.9f* PLAYER_SIZE, 0.25f * PLAYER_SIZE};
 
     for (int i = 0; i < MAX_CANNONS; i++) {
         float x, y;
@@ -334,27 +335,72 @@ void update_player(void)
     player.position.y = 0;
     
     if (IsKeyDown(KEY_UP)) {
-        player.position.y = -100 * dt;     
+        player.direction = TOP;
+        player.position.y = -100 * dt;
     }
     if (IsKeyDown(KEY_DOWN)) {
+        player.direction = BOTTOM;
         player.position.y = 150 * dt;
     }
     if (IsKeyDown(KEY_LEFT)) {
+        player.direction = LEFT;
         player.position.x = -100 * dt;
     }
     if (IsKeyDown(KEY_RIGHT)) {
+        player.direction = RIGHT;
         player.position.x = 100 * dt;
     }
     
     player.color = (player.alive) ? (Color) {255, 255, 255, 255} : (Color) {220, 100, 100, 255};
 
-    player.dest_rect.x += player.position.x;
-    player.dest_rect.y += player.position.y;
+    Rectangle next_position = player.dest_rect;
+    next_position.x += player.position.x;
+    next_position.y += player.position.y;
 
-    if (player.dest_rect.y + PLAYER_SIZE > GAME_HEIGHT) player.dest_rect.y = GAME_HEIGHT - PLAYER_SIZE;
-    if (player.dest_rect.x + (0.5f * PLAYER_SIZE) < plank_rect.x || player.dest_rect.x + 0.5f * PLAYER_SIZE > plank_rect.x + PLANK_W) {
+    player.colliders[TOP]  = (Rectangle) {0, 0, 0.5 *  PLAYER_SIZE, 0.5 *  PLAYER_SIZE};
+     
+    player.colliders[TOP].y = next_position.y + 0.5f * PLAYER_SIZE - 0.6f * player.colliders[TOP].height;
+    player.colliders[TOP].x = next_position.x + 0.5f * PLAYER_SIZE - 0.5f * player.colliders[TOP].width;    
+
+    if (next_position.y + PLAYER_SIZE > GAME_HEIGHT) next_position.y = GAME_HEIGHT - PLAYER_SIZE;
+    if (next_position.x + (0.5f * PLAYER_SIZE) < plank_rect.x || next_position.x + 0.5f * PLAYER_SIZE > plank_rect.x + PLANK_W) {
         player.alive = false;
         player.color = (Color) {220, 100, 100 , 255};
+    }
+
+    player.dest_rect.x = next_position.x;
+    player.dest_rect.y = next_position.y;
+    
+    if (crates.count > 0) {
+        for (int i = 0; i < MAX_CRATES; i++) {
+            if (!crates.is_active[i]) continue;
+            Rectangle crate_collider = (Rectangle) {crates.position[i].x, crates.position[i].y, CRATE_SIZE, CRATE_SIZE};
+            if (CheckCollisionRecs(player.colliders[TOP], crate_collider)) {
+                Rectangle p_col = player.colliders[TOP];
+                int overlap_x = 0, overlap_y = 0;
+                int x_sign = 1, y_sign = 1;
+                
+                if (p_col.x < crate_collider.x) {
+                    overlap_x = (p_col.x + p_col.width) - crate_collider.x;
+                    x_sign = -1; 
+                } else {
+                    overlap_x = crate_collider.x + crate_collider.width - p_col.x;
+                }
+
+                if (p_col.y < crate_collider.y) {
+                    overlap_y = (p_col.y + p_col.height) - crate_collider.y;
+                    y_sign = -1;
+                } else {
+                    overlap_y = crate_collider.y + crate_collider.height - p_col.y;
+                }
+
+                if (abs(overlap_x) < abs(overlap_y)) {
+                    player.dest_rect.x += x_sign * overlap_x;
+                } else {
+                    player.dest_rect.y += y_sign * overlap_y;
+                }
+            }
+        }
     }
 
     bool moving = (player.position.x != 0.0f || player.position.y != 0.0f);
@@ -444,7 +490,7 @@ void update_cannons(void)
                 b->state = IDLE;
                 b->timer = 0.0f;
             }
-            if (hit_player) player.alive = false;
+            if (hit_player) player.alive = GLOBAL_BULLET_IMMUNITY;
         }  
     }
 }
@@ -470,5 +516,15 @@ void update_crates(void) {
                 crates.position[index] = (Vector2) {(float) GetRandomValue(x, x + PLANK_W - CRATE_SIZE), -CRATE_SIZE};
             }
         }    
+    }
+
+    for (int i = 0; i < MAX_CRATES; i++) {
+        if (crates.is_active[i]) {
+            crates.position[i].y += ((float) GAME_HEIGHT / PLANK_MOVE_RATE) * GetFrameTime();
+            if (crates.position[i].y > GAME_HEIGHT) {
+                crates.is_active[i] = false;
+                crates.count--;
+            }
+        }
     }
 }
