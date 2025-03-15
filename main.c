@@ -4,8 +4,6 @@
 #include "raylib.h"
 #include "raymath.h"
 
-#define GLOBAL_BULLET_IMMUNITY true;
-
 #define GAME_WIDTH 1280
 #define GAME_HEIGHT 720
 
@@ -25,6 +23,7 @@
 #define BULLET_RADIUS 5
 #define MAX_CRATES 5
 #define CRATE_SIZE 64
+#define MAX_PLANKS 10
 
 typedef enum {
     LEFT_TOP = 0,
@@ -57,6 +56,13 @@ typedef enum {
 } MovementState;
 
 typedef enum {
+    INACTIVE = 0,
+    SPAWN,
+    SETTLED,
+    ZOOMING
+} PlankState;
+
+typedef enum {
     MAIN_MENU,
     RESET_STATE,
     IN_GAME
@@ -76,6 +82,7 @@ typedef struct Player {
     AnimationHandler animation;
     Vector2 position;
     Color color;
+    int inventory;
     PlayerDirection direction;
     bool alive;
 } Player;
@@ -100,7 +107,15 @@ typedef struct Cannons {
     MovementHandler movement[MAX_CANNONS];
 } Cannons;
 
+typedef struct plank_handler {
+    Vector2 pos;
+    Vector2 target_pos;
+    float timer;
+    PlankState state;
+} PlankHandler;
+
 typedef struct crates {
+    PlankHandler planks[MAX_PLANKS];
     float hit_timer;
     int count;
     int selected_index;
@@ -115,6 +130,7 @@ Rectangle plank_rect = {
     GAME_HEIGHT
 };
 
+bool debug_mode;
 GameState game_state;
 Player player;
 Cannons cannons;
@@ -122,8 +138,10 @@ Crates crates;
 Texture2D spritesheet;
 
 void update_player(void);
+void spawn_plank(Vector2 crate_pos);
 void update_cannons(void);
 void update_crates(void);
+void update_planks(void);
 void reset_game(void);
 
 int main(int argc, char* argv[])
@@ -145,17 +163,20 @@ int main(int argc, char* argv[])
     SetTargetFPS(60);
     game_state = IN_GAME;
     reset_game();
+    debug_mode = false;
     
     while (!WindowShouldClose()) 
     {
-
         {
+            if (IsKeyPressed(KEY_D)) debug_mode = !debug_mode;
+            
             if (!player.alive) game_state = RESET_STATE;
              
             if (game_state != MAIN_MENU) {
                 update_player();
                 update_cannons();
                 update_crates();
+                update_planks();
             }
             if (game_state == RESET_STATE) {
                 reset_game();
@@ -206,9 +227,8 @@ int main(int argc, char* argv[])
                 Rectangle plank1_dest = plank_rect;
                 plank1_dest.y = plank_rect.y +  (GAME_HEIGHT / 136.0f) * moved_amount;
                 Rectangle plank1_source = (Rectangle) {0, 64, 48, 136};
-                
-                Rectangle plank2_source = (Rectangle) {0, 200 - moved_amount, 48, moved_amount};
-                
+        
+                Rectangle plank2_source = (Rectangle) {0, 200 - moved_amount, 48, moved_amount};        
                 Rectangle plank2_dest = plank_rect;
                 plank2_dest.height = (GAME_HEIGHT / 136.0f) * moved_amount;
                 
@@ -245,7 +265,7 @@ int main(int argc, char* argv[])
                     DrawTexturePro(spritesheet,
                         (Rectangle){48,64,32,32},
                         (Rectangle){b.bullet_position.x,b.bullet_position.y,32,32},
-                         (Vector2){4,4}, 0, WHITE
+                        (Vector2){4,4}, 0, WHITE
                      );
                 }
             }
@@ -258,19 +278,29 @@ int main(int argc, char* argv[])
                     if (i == crates.selected_index) {
                         DrawRectangleLinesEx(crate_rec, 2, YELLOW);
                     }    
-                
-                    
                 }
             }
+            //::draw_planks::
+            for (int i = 0; i < MAX_PLANKS; i++) {
+                if (crates.planks[i].state != INACTIVE) {
+                    Vector2 pos = {crates.planks[i].pos.x, crates.planks[i].pos.y};
+                    Rectangle plank_drop = (Rectangle) {pos.x, pos.y, 20, 20};
+                    DrawRectangleRec(plank_drop, WHITE);
+                }
+            }
+            
             //::draw_player::
             DrawTexturePro(spritesheet, player.source_rect, player.dest_rect, (Vector2) {0,0}, 0, WHITE);
-            // DrawRectangleRec(player.colliders[TOP], (Color) {255,0,0,100});
+            if (debug_mode) DrawRectangleRec(player.colliders[TOP], (Color) {255,0,0,100});
             //::draw_main_menu::
             if (game_state == MAIN_MENU) {
                 DrawText("Press Space to play", GAME_WIDTH*0.5f, GAME_HEIGHT*0.5f, 22, C_BLACK);
             }
+            if (debug_mode) {
+                DrawText("DEBUG MODE", GAME_WIDTH - 200, 0, 20, (Color) {255, 0,0,255});
+                DrawFPS(20,20);
+            }
             
-            DrawFPS(20,20);
         EndDrawing();
     }
     
@@ -301,6 +331,7 @@ void reset_game(void) {
     };
     player.direction = TOP;
     player.colliders[TOP] = (Rectangle) {0, 0, 0.5 *  PLAYER_SIZE, 0.5 *  PLAYER_SIZE};
+    player.inventory = 0;
 
     for (int i = 0; i < MAX_CANNONS; i++) {
         float x, y;
@@ -332,14 +363,45 @@ void reset_game(void) {
         crates.is_active[i] = false;
         crates.position[i] = (Vector2) {0,0};
     }
+
+    for (int i = 0; i < MAX_PLANKS; i++) {
+        crates.planks[i] = (PlankHandler) {
+            .pos = {0,0},
+            .target_pos = {0,0},
+            .timer = 0.0f,
+            .state = INACTIVE,
+        };      
+    }
     
     return;
+}
+
+void spawn_plank(Vector2 crate_pos) {
+    PlankHandler* p;
+    PlankHandler* end = &crates.planks[MAX_PLANKS-1];
+    for (p = &crates.planks[0]; p <= end; p++) {
+        PlankHandler* slot;
+        bool free_space = (p->state == INACTIVE) ? true : false;
+
+        if (free_space) {
+            slot = p;
+        } else if (p == end) {
+            free_space = true;
+            slot = &crates.planks[0];
+        }
+
+        if (free_space) {
+            slot->state = SPAWN;
+            slot->pos = (Vector2) {crate_pos.x + 0.5f * CRATE_SIZE, crate_pos.y + 0.5f * CRATE_SIZE};
+            break;
+        }
+    }
 }
 
 void update_player(void)
 {
     float dt = GetFrameTime();
-
+    
     player.position.x = 0;
     player.position.y = 0;
     
@@ -420,13 +482,13 @@ void update_player(void)
                     crates.selected_index = -1;
                     crates.count--;
                     crates.hit_timer += dt;
+                    spawn_plank(crates.position[i]);
                 } 
             } 
             
         }
         crates.hit_timer += dt;
     }
-
     //::player_animation::
     {
         bool moving = (player.position.x != 0.0f || player.position.y != 0.0f);
@@ -517,7 +579,7 @@ void update_cannons(void)
                 b->state = IDLE;
                 b->timer = 0.0f;
             }
-            if (hit_player) player.alive = GLOBAL_BULLET_IMMUNITY;
+            if (hit_player) player.alive = (debug_mode) ? true : false;
         }  
     }
 }
@@ -556,5 +618,56 @@ void update_crates(void) {
                  }
             }
         }
+    }
+}
+
+void update_planks(void) {
+    float dt = GetFrameTime();
+    for (int i = 0; i < MAX_PLANKS; i++) {
+        PlankHandler *p = &crates.planks[i];
+        if (p->state == INACTIVE) {
+            continue;
+        }
+        if (p->state == SPAWN) {
+            if (Vector2Equals(p->target_pos, (Vector2){0,0})) {
+                Vector2 t = Vector2Subtract(p->pos, (Vector2){player.dest_rect.x + 0.5f * PLAYER_SIZE, player.dest_rect.y + 0.5f * PLAYER_SIZE});
+                float length = Vector2Length(t);
+                if (length > 0) {
+                    t = Vector2Normalize(t);
+                } else {
+                    t.x = 0;
+                    t.y = -1;
+                }
+                t = Vector2Scale(t, 50.0f);
+                p->target_pos = Vector2Add(p->pos, t);
+            }
+            
+            p->pos = Vector2MoveTowards(p->pos, p->target_pos , 150 * dt);
+
+            if (Vector2Equals(p->pos, p->target_pos)) {
+                p->state = SETTLED;
+                p->target_pos = (Vector2) {0,0};
+            }
+        }
+        if (p->state == SETTLED) {
+            p->timer += dt;
+            if (p->timer > 1.0f) {
+                p->state = ZOOMING;
+                p->timer = 0.0f;
+            } else {
+                p->pos.x += GetRandomValue(-2, 2);
+                p->pos.y += GetRandomValue(-2, 2);
+            }
+        }
+        
+        if (p->state == ZOOMING) {
+            p->target_pos = (Vector2) {player.dest_rect.x + 0.5f * PLAYER_SIZE, player.dest_rect.y + 0.5f * PLAYER_SIZE};
+            p->pos = Vector2MoveTowards(p->pos, p->target_pos, 300.0f * dt);
+            if (Vector2Equals(p->pos, p->target_pos)) {
+                p->state = INACTIVE;
+                player.inventory++; //::urgent_todo: figure out how to display this text
+                p->target_pos = (Vector2) {0,0};
+            }
+        } 
     }
 }
