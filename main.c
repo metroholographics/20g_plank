@@ -101,11 +101,11 @@ typedef struct Cannons {
 } Cannons;
 
 typedef struct crates {
+    float hit_timer;
     int count;
-    bool selected;
+    int selected_index;
     Vector2 position[MAX_CRATES];
     bool is_active[MAX_CRATES];
-    bool selection[MAX_CRATES];
 } Crates;
 
 Rectangle plank_rect = {
@@ -255,7 +255,7 @@ int main(int argc, char* argv[])
                     Vector2 pos = crates.position[i];
                     Rectangle crate_rec = (Rectangle) {pos.x, pos.y, CRATE_SIZE, CRATE_SIZE};    
                     DrawRectangleRec(crate_rec, C_BROWN);
-                    if (crates.selection[i]) {
+                    if (i == crates.selected_index) {
                         DrawRectangleLinesEx(crate_rec, 2, YELLOW);
                     }    
                 
@@ -326,11 +326,11 @@ void reset_game(void) {
     }
 
     crates.count = 0;
-    crates.selected = false;;
+    crates.hit_timer = 0.0f;
+    crates.selected_index = -1;
     for (int i = 0; i < MAX_CRATES; i++) {
         crates.is_active[i] = false;
         crates.position[i] = (Vector2) {0,0};
-        crates.selection[i] = false;
     }
     
     return;
@@ -381,12 +381,8 @@ void update_player(void)
             if (!crates.is_active[i]) continue;
             Rectangle crate_collider = (Rectangle) {crates.position[i].x, crates.position[i].y, CRATE_SIZE, CRATE_SIZE};
             if (CheckCollisionRecs(player.colliders[TOP], crate_collider)) {
-                if (!crates.selected) {
-                    crates.selection[i] = true;
-                    crates.selected = true;
-                } else {
-                    crates.selection[i] = false;
-                    crates.selected = false;
+                if (crates.selected_index == -1) {
+                    crates.selected_index = i;
                 } 
                 Rectangle p_col = player.colliders[TOP];
                 int overlap_x = 0, overlap_y = 0;
@@ -411,11 +407,24 @@ void update_player(void)
                 } else {
                     player.dest_rect.y += y_sign * overlap_y;
                 }
-            } else {
-                crates.selected = false;
-                crates.selection[i] = false;
+            } else if (crates.selected_index == i) {
+                crates.selected_index = -1;
+            }
+
+            if (IsKeyPressed(KEY_SPACE) && i == crates.selected_index) {
+                if (crates.hit_timer >= 0.05f) {
+                    crates.hit_timer = 0.0f;
+                }
+                if (crates.hit_timer == 0.0f) {
+                    crates.is_active[i] = false;
+                    crates.selected_index = -1;
+                    crates.count--;
+                    crates.hit_timer += dt;
+                } 
             } 
+            
         }
+        crates.hit_timer += dt;
     }
 
     //::player_animation::
@@ -542,10 +551,9 @@ void update_crates(void) {
             if (crates.position[i].y > GAME_HEIGHT) {
                 crates.is_active[i] = false;
                 crates.count--;
-                if (crates.selection[i]) {
-                    crates.selected = false;
-                    crates.selection[i] = false;
-                }
+                if (crates.selected_index == i) {
+                    crates.selected_index = -1;
+                 }
             }
         }
     }
