@@ -292,6 +292,10 @@ int main(int argc, char* argv[])
             //::draw_player::
             DrawTexturePro(spritesheet, player.source_rect, player.dest_rect, (Vector2) {0,0}, 0, WHITE);
             if (debug_mode) DrawRectangleRec(player.colliders[TOP], (Color) {255,0,0,100});
+
+            //::draw_score::
+            DrawRectangle(GAME_WIDTH * 0.065f, 0, 32, 32, C_BROWN);
+            DrawText((TextFormat("x %d", player.inventory)), GAME_WIDTH * 0.1f, 0,  35, WHITE);
             //::draw_main_menu::
             if (game_state == MAIN_MENU) {
                 DrawText("Press Space to play", GAME_WIDTH*0.5f, GAME_HEIGHT*0.5f, 22, C_BLACK);
@@ -575,7 +579,21 @@ void update_cannons(void)
             b->bullet_position = Vector2MoveTowards(b->bullet_position, b->lock_on, 200 * dt);
             //::todo:: learn how to do circle->rect collision myself
             bool hit_player = CheckCollisionCircleRec(b->bullet_position, BULLET_RADIUS, player.dest_rect);
-            if (Vector2Equals(b->bullet_position, b->lock_on) || hit_player) {
+
+            bool hit_crate = false;
+            for (int i = 0; i < MAX_CRATES; i++) {
+                if (crates.is_active[i]) {
+                    Rectangle crate_collider = (Rectangle) {crates.position[i].x, crates.position[i].y, CRATE_SIZE, CRATE_SIZE};
+                    if (CheckCollisionCircleRec(b->bullet_position, BULLET_RADIUS, crate_collider)) {
+                        crates.is_active[i] = false;
+                        crates.count--;
+                        hit_crate = true;
+                        if (i == crates.selected_index) crates.selected_index = -1;
+                        break;
+                    }
+                }
+            }
+            if (Vector2Equals(b->bullet_position, b->lock_on) || hit_player || hit_crate) {
                 b->state = IDLE;
                 b->timer = 0.0f;
             }
