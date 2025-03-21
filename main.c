@@ -92,10 +92,10 @@ typedef struct Player {
 } Player;
 
 typedef struct bullet_handler {
-    Vector2 bullet_position[10];
-    Vector2 lock_on[10];
-    float timer[10];
-    BulletState state[10];
+    Vector2 bullet_position;
+    Vector2 lock_on;
+    float timer;
+    BulletState state;
     int speed;    
 } BulletHandler;
 
@@ -278,14 +278,15 @@ int main(int argc, char* argv[])
             }
             //::draw_bullets::
             for (int i = 0; i < MAX_CANNONS; i++) {
+                bool cannon_alive = cannons.health[i] > 0;
                 BulletHandler b = cannons.bullet[i];
-                if (b.state[0] == LOCKING_ON) {
-                    DrawLineEx(cannons.positions[i], b.lock_on[0], 2.0f, C_GREY); 
+                if (b.state == LOCKING_ON && cannon_alive) {
+                    DrawLineEx(cannons.positions[i], b.lock_on, 2.0f, C_GREY); 
                 }
-                if (b.state[0] == FIRING || b.state[0] == REVERSE) {
+                if (b.state == FIRING || b.state == REVERSE) {
                     DrawTexturePro(spritesheet,
                         (Rectangle){48,64,32,32},
-                        (Rectangle){b.bullet_position[0].x,b.bullet_position[0].y,32,32},
+                        (Rectangle){b.bullet_position.x,b.bullet_position.y,32,32},
                         (Vector2){4,4}, 0, WHITE
                      );
                 }
@@ -375,10 +376,10 @@ void reset_game(void) {
         }
         cannons.positions[i] = (Vector2) {x,y};
         cannons.bullet[i] = (BulletHandler) {
-            .bullet_position = {{0,0}},
-            .lock_on = {{0,0}},
-            .timer = {0.0f},
-            .state = {IDLE},
+            .bullet_position = {0,0},
+            .lock_on = {0,0},
+            .timer = 0.0f,
+            .state = IDLE,
             .speed = 200,
         };
         cannons.movement[i] = (MovementHandler) {
@@ -662,38 +663,38 @@ void update_cannons(float dt)
 
     //::update_bullets::
     for (int i = 0; i < MAX_CANNONS; i++) {
-        if (cannons.health[i] <= 0) continue;
-        //::urgent_todo:: implement better way to implement relationship btw. cannons and bullets
-        //currently, bullet movement is reliant on cannon being active
         BulletHandler* b = &cannons.bullet[i];
-        b->timer[0] += dt;
+        b->timer += dt;
+
+        bool cannon_alive = cannons.health[i] > 0;
+        if (cannons.health[i] == 1) b->speed = 300;
         
-        if (b->timer[0] >= 1.0f && b->state[0] == IDLE) {
+        if (b->timer >= 1.0f && b->state == IDLE && cannon_alive) {
             int chance = GetRandomValue(1, 10);
             if (chance <= 1) {
-                b->state[0] = LOCKING_ON;
-                b->timer[0] = 0.0f;
-                b->bullet_position[0] = cannons.positions[i];
+                b->state = LOCKING_ON;
+                b->timer = 0.0f;
+                b->bullet_position = cannons.positions[i];
             }
         }
         
-        if (b->state[0] == LOCKING_ON) {
-            if (b->timer[0] < 1.0f) {
-                b->lock_on[0] = (Vector2) {player.dest_rect.x + 0.5f * PLAYER_SIZE, player.dest_rect.y + 0.5f * PLAYER_SIZE};
+        if (b->state == LOCKING_ON && cannon_alive) {
+            if (b->timer < 1.0f) {
+                b->lock_on = (Vector2) {player.dest_rect.x + 0.5f * PLAYER_SIZE, player.dest_rect.y + 0.5f * PLAYER_SIZE};
             } else {
-                b->state[0] = FIRING;
-                b->timer[0] = 0.0f;
+                b->state = FIRING;
+                b->timer = 0.0f;
             }
         }
-        if (b->state[0] == FIRING) {
-            b->bullet_position[0] = Vector2MoveTowards(b->bullet_position[0], b->lock_on[0], b->speed * dt);
+        if (b->state == FIRING) {
+            b->bullet_position = Vector2MoveTowards(b->bullet_position, b->lock_on, b->speed * dt);
             //::todo:: learn how to do circle->rect collision myself
-            bool hit_player = CheckCollisionCircleRec(b->bullet_position[0], BULLET_RADIUS, player.dest_rect);
+            bool hit_player = CheckCollisionCircleRec(b->bullet_position, BULLET_RADIUS, player.dest_rect);
             bool hit_crate = false;
             for (int i = 0; i < MAX_CRATES && !hit_player; i++) {
                 if (crates.is_active[i]) {
                     Rectangle crate_collider = (Rectangle) {crates.position[i].x, crates.position[i].y, CRATE_SIZE, CRATE_SIZE};
-                    if (CheckCollisionCircleRec(b->bullet_position[0], BULLET_RADIUS, crate_collider)) {
+                    if (CheckCollisionCircleRec(b->bullet_position, BULLET_RADIUS, crate_collider)) {
                         crates.is_active[i] = false;
                         crates.count--;
                         hit_crate = true;
@@ -707,31 +708,31 @@ void update_cannons(float dt)
                 for (int i = 0; i < MAX_PLAYER_CRATES; i++) {
                     if (!boxes.is_active[i]) continue;
                     Rectangle box_collider  = (Rectangle) {boxes.position[i].x, boxes.position[i].y, CRATE_SIZE, CRATE_SIZE};
-                    if (CheckCollisionCircleRec(b->bullet_position[0], BULLET_RADIUS, box_collider)) {
-                        b->lock_on[0] = Vector2Normalize(Vector2Subtract(b->lock_on[0], b->bullet_position[0]));
-                        b->lock_on[0] = (Vector2){-1 * b->lock_on[0].x, b->lock_on[0].y};
-                        b->state[0] = REVERSE;
+                    if (CheckCollisionCircleRec(b->bullet_position, BULLET_RADIUS, box_collider)) {
+                        b->lock_on = Vector2Normalize(Vector2Subtract(b->lock_on, b->bullet_position));
+                        b->lock_on = (Vector2){-1 * b->lock_on.x, b->lock_on.y};
+                        b->state = REVERSE;
                         break;
                     }
                 }
             }
-            if (Vector2Equals(b->bullet_position[0], b->lock_on[0]) || hit_player || hit_crate) {
-                b->state[0] = IDLE;
-                b->timer[0] = 0.0f;
+            if (Vector2Equals(b->bullet_position, b->lock_on) || hit_player || hit_crate) {
+                b->state = IDLE;
+                b->timer = 0.0f;
             }
             if (hit_player) player.alive = (debug_mode) ? true : false;
         }
-        if (b->state[0] == REVERSE) {
-            b->bullet_position[0].x += b->lock_on[0].x * b->speed * dt;
-            b->bullet_position[0].y += b->lock_on[0].y * b->speed * dt;
-            if (b->bullet_position[0].x < 0 || b->bullet_position[0].x > GAME_WIDTH || b->bullet_position[0].y > GAME_HEIGHT || b->bullet_position[0].y < 0) {
-                b->state[0] = IDLE;
-                b->timer[0] = 0.0f;
+        if (b->state == REVERSE) {
+            b->bullet_position.x += b->lock_on.x * b->speed * dt;
+            b->bullet_position.y += b->lock_on.y * b->speed * dt;
+            if (b->bullet_position.x < 0 || b->bullet_position.x > GAME_WIDTH || b->bullet_position.y > GAME_HEIGHT || b->bullet_position.y < 0) {
+                b->state = IDLE;
+                b->timer = 0.0f;
             }
             for (int i = 0; i < MAX_CANNONS; i++) {
                 Rectangle cannon_collider = (Rectangle) {cannons.positions[i].x, cannons.positions[i].y, CANNON_SIZE, CANNON_SIZE};
-                if (CheckCollisionCircleRec(b->bullet_position[0], BULLET_RADIUS, cannon_collider )) {
-                    b->state[0] = IDLE;
+                if (CheckCollisionCircleRec(b->bullet_position, BULLET_RADIUS, cannon_collider )) {
+                    b->state = IDLE;
                     cannons.health[i]--;
                     break;
                 }
