@@ -164,7 +164,10 @@ int main(int argc, char* argv[])
 {   
     (void)argc; (void)argv;
 
+    SetConfigFlags(FLAG_VSYNC_HINT);
+
     InitWindow(GAME_WIDTH, GAME_HEIGHT, "20g_plank");
+    
     if (GetMonitorCount() > 0) SetWindowMonitor(1);
     else SetWindowMonitor(0);
 
@@ -176,7 +179,9 @@ int main(int argc, char* argv[])
     }
 
     SetRandomSeed((unsigned int) time(NULL));
-    SetTargetFPS(60);
+    int targetFPS = GetMonitorRefreshRate(GetCurrentMonitor());
+    if (targetFPS <= 0) targetFPS = 60;
+    SetTargetFPS(targetFPS);
     game_state = IN_GAME;
     reset_game();
     debug_mode = false;
@@ -233,13 +238,13 @@ int main(int argc, char* argv[])
             //::draw_scrolling_plank::
             {
                 static float plank_timer = 0.0f;
-                static float moved_amount = 0;
+                static float moved_amount = 0.0f;
                 plank_timer += dt;
                 if (plank_timer > 0.0f) {
                     moved_amount += PLANK_MOVE_RATE * dt;
                     plank_timer = 0.0f;
-                    if (moved_amount >= 136) {
-                        moved_amount = 0;
+                    if (moved_amount >= 136.0f) {
+                        moved_amount = 0.0f;
                     }
                 }
                 //::todo:: move update logic to an update function
@@ -592,9 +597,11 @@ void update_player(float dt)
     }
 
     if (boxes.count > 0) {
+        Rectangle box_collider = (Rectangle) {0,0,CRATE_SIZE, CRATE_SIZE};
         for (int i = 0; i < MAX_PLAYER_CRATES; i++) {
             if (!boxes.is_active[i]) continue;
-            Rectangle box_collider = (Rectangle) {boxes.position[i].x, boxes.position[i].y, CRATE_SIZE, CRATE_SIZE};
+            box_collider.x = boxes.position[i].x;
+            box_collider.y = boxes.position[i].y;
             if (CheckCollisionRecs(player.colliders[TOP], box_collider)) {
                 bump_collision(&player, box_collider);
                 break;
@@ -703,7 +710,7 @@ void update_cannons(float dt)
                     }
                 }
             }
-            
+
             if (!hit_player && !hit_crate && boxes.count > 0) {
                 for (int i = 0; i < MAX_PLAYER_CRATES; i++) {
                     if (!boxes.is_active[i]) continue;
@@ -730,6 +737,7 @@ void update_cannons(float dt)
                 b->timer = 0.0f;
             }
             for (int i = 0; i < MAX_CANNONS; i++) {
+                if (cannons.health[i] <= 0) continue;
                 Rectangle cannon_collider = (Rectangle) {cannons.positions[i].x, cannons.positions[i].y, CANNON_SIZE, CANNON_SIZE};
                 if (CheckCollisionCircleRec(b->bullet_position, BULLET_RADIUS, cannon_collider )) {
                     b->state = IDLE;
@@ -791,6 +799,8 @@ void update_boxes(float dt) {
 }
 
 void update_planks(float dt) {
+    float plank_speed = 150 * dt;
+    float plank_zoom = 300 * dt;
     for (int i = 0; i < MAX_PLANKS; i++) {
         PlankHandler *p = &crates.planks[i];
         if (p->state == INACTIVE) continue;
@@ -809,7 +819,7 @@ void update_planks(float dt) {
                 p->target_pos = Vector2Add(p->pos, t);
             }
             
-            p->pos = Vector2MoveTowards(p->pos, p->target_pos , 150 * dt);
+            p->pos = Vector2MoveTowards(p->pos, p->target_pos, plank_speed);
 
             if (Vector2Equals(p->pos, p->target_pos)) {
                 p->state = SETTLED;
@@ -822,13 +832,13 @@ void update_planks(float dt) {
                 p->state = ZOOMING;
                 p->timer = 0.0f;
             } else {
-                p->pos.x += GetRandomValue(-2, 2);
-                p->pos.y += GetRandomValue(-2, 2);
+                p->pos.x += GetRandomValue(-200, 200) * dt;
+                p->pos.y += GetRandomValue(-200, 200) * dt;
             }
         }
         if (p->state == ZOOMING) {
             p->target_pos = (Vector2) {player.dest_rect.x + 0.5f * PLAYER_SIZE, player.dest_rect.y + 0.5f * PLAYER_SIZE};
-            p->pos = Vector2MoveTowards(p->pos, p->target_pos, 300.0f * dt);
+            p->pos = Vector2MoveTowards(p->pos, p->target_pos, plank_zoom);
             if (Vector2Equals(p->pos, p->target_pos)) {
                 p->state = INACTIVE;
                 player.inventory++;
