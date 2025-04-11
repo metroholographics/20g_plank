@@ -3,3 +3,7 @@ compile_commands.json
 *.exe
 *.concepts
 ./assets/*.pxc
+sketch_scene.aseprite
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/tasks.json
